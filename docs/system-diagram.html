@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Flash Sale System Architecture</title>
+  <style>
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background: #fff;
+      font-family: system-ui, sans-serif;
+      padding: 60px 40px;
+    }
+    h1 { font-size: 36px; margin-bottom: 8px; }
+    h2 { font-size: 28px; margin-top: 80px; margin-bottom: 16px; color: #333; }
+    p { color: #666; margin-bottom: 40px; font-size: 18px; }
+    .mermaid {
+      width: 100%;
+      max-width: 1100px;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Flash Sale System Architecture</h1>
+  <p>High-Throughput Flash Sale System — System Diagram</p>
+
+  <div class="mermaid">
+flowchart TB
+    subgraph Client["Client (Browser)"]
+        FE["React Frontend\n(Vite + TailwindCSS)\nPort 5173"]
+    end
+
+    subgraph API["Fastify API Server (Stateless) — Port 3000"]
+        direction TB
+        R1["GET /api/sale/status\nReturns: upcoming | active | ended + stock"]
+        R2["POST /api/purchase\nBody: { userId }\nReturns: success | failure + reason"]
+        R3["GET /api/order/:userId\nReturns: order details or not found"]
+        R4["GET /api/health\nReturns: { status: ok }"]
+    end
+
+    subgraph RedisLayer["Redis 7 (Fast Rejection Layer) — Port 6379"]
+        direction TB
+        R_TIME["Sale Time Window\nGET flash_sale:start_time\nGET flash_sale:end_time"]
+        R_USER["Purchased Users SET\nSISMEMBER / SADD\nO(1) lookup"]
+        R_STOCK["Stock Counter\nGET / DECR\nAtomic operation"]
+    end
+
+    subgraph PGLayer["PostgreSQL 16 (Source of Truth) — Port 5432"]
+        direction TB
+        PT["products\n(id, name, stock)\nCHECK stock >= 0"]
+        OT["orders\n(id, user_id, product_id, created_at)\nUNIQUE(user_id, product_id)"]
+        ST["sale_config\n(id, product_id, start_time, end_time)"]
+    end
+
+    subgraph Docker["Docker Compose"]
+        RedisLayer
+        PGLayer
+    end
+
+    FE -- "HTTP REST\n(Vite proxy /api)" --> API
+
+    R2 -- "Step 1: Pre-checks\n(sale time, user, stock)" --> RedisLayer
+    R2 -- "Step 2: Transaction\nSELECT...FOR UPDATE\nINSERT order\nUPDATE stock" --> PGLayer
+    R2 -. "Step 3: Update cache\n(best-effort)" .-> RedisLayer
+
+    R1 --> PGLayer
+    R3 --> PGLayer
+
+    style Client fill:#e8f4fd,stroke:#2196F3
+    style API fill:#fff3e0,stroke:#FF9800
+    style RedisLayer fill:#fce4ec,stroke:#E91E63
+    style PGLayer fill:#e8f5e9,stroke:#4CAF50
+    style Docker fill:#f5f5f5,stroke:#9E9E9E,stroke-dasharray: 5 5
+  </div>
+
+  <h2>Purchase Flow — Sequence Diagram</h2>
+  <div class="mermaid" style="margin-top: 20px;">
+sequenceDiagram
+    participant U as User (Browser)
+    participant F as Fastify API
+    participant R as Redis
+    participant P as PostgreSQL
+
+    U->>F: POST /api/purchase { userId }
+
+    rect rgb(255, 235, 238)
+    Note over F,R: Redis Pre-checks (Fast Path)
+    F->>R: GET flash_sale:start_time & end_time
+    R-->>F: Sale time window
+    F->>F: Check if sale active
+    F->>R: SISMEMBER flash_sale:purchased_users
+    R-->>F: 0 (not purchased)
+    F->>R: GET flash_sale:stock
+    R-->>F: 42 (stock remaining)
+    end
+
+    rect rgb(232, 245, 233)
+    Note over F,P: PostgreSQL Transaction (Source of Truth)
+    F->>P: BEGIN
+    F->>P: SELECT stock FROM products FOR UPDATE
+    P-->>F: stock = 42
+    F->>P: SELECT FROM orders WHERE user_id = ?
+    P-->>F: No existing order
+    F->>P: INSERT INTO orders (user_id, product_id)
+    F->>P: UPDATE products SET stock = stock - 1
+    F->>P: COMMIT
+    end
+
+    rect rgb(252, 228, 236)
+    Note over F,R: Redis Cache Update (Best-effort)
+    F->>R: SADD flash_sale:purchased_users userId
+    F->>R: DECR flash_sale:stock
+    end
+
+    F-->>U: { success: true, orderId: 1 }
+  </div>
+
+  <h2>Database Entity Relationship Diagram</h2>
+  <div class="mermaid" style="margin-top: 20px;">
+erDiagram
+    products {
+        SERIAL id PK
+        VARCHAR name "NOT NULL"
+        INTEGER stock "NOT NULL, CHECK >= 0"
+    }
+
+    orders {
+        SERIAL id PK
+        VARCHAR user_id "NOT NULL"
+        INTEGER product_id FK
+        TIMESTAMPTZ created_at "DEFAULT NOW()"
+    }
+
+    sale_config {
+        SERIAL id PK
+        INTEGER product_id FK
+        TIMESTAMPTZ start_time "NOT NULL"
+        TIMESTAMPTZ end_time "NOT NULL"
+    }
+
+    products ||--o{ orders : "has many"
+    products ||--o{ sale_config : "has one"
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'default',
+      flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis', nodeSpacing: 50, rankSpacing: 70 },
+      sequence: { useMaxWidth: true, mirrorActors: false, actorFontSize: 16, messageFontSize: 14, noteFontSize: 13 },
+      fontSize: 16
+    });
+  </script>
+</body>
+</html>
