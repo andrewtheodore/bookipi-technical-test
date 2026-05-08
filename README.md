@@ -4,7 +4,7 @@ A high-throughput flash sale backend + frontend built with Fastify (TypeScript),
 
 ## Demo
 
-<video src="demo.mov" controls width="100%"></video>
+https://github.com/user-attachments/assets/cd0a5ea7-5e23-4e55-989d-c90e1103e494
 
 ## System Architecture
 
