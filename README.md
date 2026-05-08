@@ -36,11 +36,80 @@ flowchart TB
     R3 --> Postgres
 ```
 
-### Purchase Flow
+### Purchase Flow — Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    participant U as User (Browser)
+    participant F as Fastify API
+    participant R as Redis
+    participant P as PostgreSQL
+
+    U->>F: POST /api/purchase { userId }
+
+    rect rgb(255, 235, 238)
+    Note over F,R: Redis Pre-checks (Fast Path)
+    F->>R: GET flash_sale:start_time & end_time
+    R-->>F: Sale time window
+    F->>F: Check if sale active
+    F->>R: SISMEMBER flash_sale:purchased_users
+    R-->>F: 0 (not purchased)
+    F->>R: GET flash_sale:stock
+    R-->>F: 42 (stock remaining)
+    end
+
+    rect rgb(232, 245, 233)
+    Note over F,P: PostgreSQL Transaction (Source of Truth)
+    F->>P: BEGIN
+    F->>P: SELECT stock FROM products FOR UPDATE
+    P-->>F: stock = 42
+    F->>P: SELECT FROM orders WHERE user_id = ?
+    P-->>F: No existing order
+    F->>P: INSERT INTO orders (user_id, product_id)
+    F->>P: UPDATE products SET stock = stock - 1
+    F->>P: COMMIT
+    end
+
+    rect rgb(252, 228, 236)
+    Note over F,R: Redis Cache Update (Best-effort)
+    F->>R: SADD flash_sale:purchased_users userId
+    F->>R: DECR flash_sale:stock
+    end
+
+    F-->>U: { success: true, orderId: 1 }
+```
 
 1. **Redis pre-checks (fast path):** Check if sale is active (cached time window), if user already purchased (`SISMEMBER`), and if stock remains (`GET stock counter`). Rejects ~90% of requests without touching the database.
 2. **Postgres transaction:** `SELECT ... FOR UPDATE` acquires a row-level lock on the product, verifies stock > 0, checks for existing order, inserts order, decrements stock. All within a single transaction.
 3. **Redis cache update:** On successful purchase, `SADD` user to purchased set and `DECR` stock counter.
+
+### Database Entity Relationship Diagram
+
+```mermaid
+erDiagram
+    products {
+        SERIAL id PK
+        VARCHAR name "NOT NULL"
+        INTEGER stock "NOT NULL, CHECK >= 0"
+    }
+
+    orders {
+        SERIAL id PK
+        VARCHAR user_id "NOT NULL"
+        INTEGER product_id FK
+        TIMESTAMPTZ created_at "DEFAULT NOW()"
+    }
+
+    sale_config {
+        SERIAL id PK
+        INTEGER product_id FK
+        TIMESTAMPTZ start_time "NOT NULL"
+        TIMESTAMPTZ end_time "NOT NULL"
+    }
+
+    products ||--o{ orders : "has many"
+    products ||--o{ sale_config : "has one"
+```
 
 ### Design Decisions & Trade-offs
 
