@@ -1,11 +1,31 @@
 import { useState } from 'react';
-import { submitPurchase, type PurchaseResult } from '../api';
+import { submitPurchase, fetchOrder, type PurchaseResult } from '../api';
 import { ResultMessage } from './ResultMessage';
 
 export function PurchaseForm() {
   const [userId, setUserId] = useState('');
   const [loading, setLoading] = useState(false);
+  const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<PurchaseResult | null>(null);
+
+  const checkExistingOrder = async () => {
+    if (!userId.trim()) return;
+    setChecking(true);
+    try {
+      const order = await fetchOrder(userId.trim());
+      if (order.hasPurchased) {
+        setResult({
+          success: true,
+          message: `You already purchased this item!`,
+          orderId: order.order?.id,
+        });
+      }
+    } catch {
+      // Ignore — user can still try to purchase
+    } finally {
+      setChecking(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,7 +56,11 @@ export function PurchaseForm() {
             id="userId"
             type="text"
             value={userId}
-            onChange={(e) => setUserId(e.target.value)}
+            onChange={(e) => {
+              setUserId(e.target.value);
+              setResult(null);
+            }}
+            onBlur={checkExistingOrder}
             placeholder="Enter your username or email"
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-colors"
             disabled={loading}
@@ -45,7 +69,7 @@ export function PurchaseForm() {
 
         <button
           type="submit"
-          disabled={!userId.trim() || loading}
+          disabled={!userId.trim() || loading || checking}
           className="w-full py-3 px-4 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
         >
           {loading ? (

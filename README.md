@@ -2,6 +2,10 @@
 
 A high-throughput flash sale backend + frontend built with Fastify (TypeScript), React, PostgreSQL, and Redis.
 
+## Demo
+
+<video src="demo.mov" controls width="100%"></video>
+
 ## System Architecture
 
 ```mermaid
