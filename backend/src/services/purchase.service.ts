@@ -29,7 +29,11 @@ export async function attemptPurchase(userId: string): Promise<PurchaseResult> {
       // 2. Check if user already purchased
       const alreadyPurchased = await redis.sismember(REDIS_KEYS.PURCHASED_USERS, userId);
       if (alreadyPurchased) {
-        return { success: false, message: 'You have already purchased this item', reason: 'already_purchased' };
+        const existing = await pool.query(
+          'SELECT id FROM orders WHERE user_id = $1 LIMIT 1',
+          [userId]
+        );
+        return { success: false, message: 'You have already purchased this item', reason: 'already_purchased', orderId: existing.rows[0]?.id };
       }
 
       // 3. Check stock
@@ -90,7 +94,7 @@ export async function attemptPurchase(userId: string): Promise<PurchaseResult> {
     if (existingOrder.rows.length > 0) {
       await client.query('ROLLBACK');
       try { await redis.sadd(REDIS_KEYS.PURCHASED_USERS, userId); } catch { /* Redis down */ }
-      return { success: false, message: 'You have already purchased this item', reason: 'already_purchased' };
+      return { success: false, message: 'You have already purchased this item', reason: 'already_purchased', orderId: existingOrder.rows[0].id };
     }
 
     // Insert order
@@ -125,7 +129,11 @@ export async function attemptPurchase(userId: string): Promise<PurchaseResult> {
     const pgCode = (err as { code?: string }).code;
     if (pgCode === '23505') {
       try { await redis.sadd(REDIS_KEYS.PURCHASED_USERS, userId); } catch { /* Redis down */ }
-      return { success: false, message: 'You have already purchased this item', reason: 'already_purchased' };
+      const existing = await pool.query(
+        'SELECT id FROM orders WHERE user_id = $1 LIMIT 1',
+        [userId]
+      );
+      return { success: false, message: 'You have already purchased this item', reason: 'already_purchased', orderId: existing.rows[0]?.id };
     }
 
     throw err;
