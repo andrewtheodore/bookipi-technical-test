@@ -34,6 +34,9 @@ export function ResultMessage({ result }: Props) {
   return (
     <div className={`border rounded-lg p-4 ${colors}`}>
       <div className="font-medium">{result.message}</div>
+      {result.reason === 'already_purchased' && result.orderId && (
+        <div className="text-sm mt-1">Order #{result.orderId}</div>
+      )}
     </div>
   );
 }

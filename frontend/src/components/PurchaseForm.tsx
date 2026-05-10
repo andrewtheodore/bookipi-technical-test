@@ -15,8 +15,9 @@ export function PurchaseForm() {
       const order = await fetchOrder(userId.trim());
       if (order.hasPurchased) {
         setResult({
-          success: true,
-          message: `You already purchased this item!`,
+          success: false,
+          message: 'You have already purchased this item',
+          reason: 'already_purchased',
           orderId: order.order?.id,
         });
       }
@@ -27,7 +28,7 @@ export function PurchaseForm() {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!userId.trim() || loading) return;
 

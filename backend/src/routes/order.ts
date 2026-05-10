@@ -6,7 +6,17 @@ interface OrderParams {
 }
 
 export async function orderRoutes(app: FastifyInstance) {
-  app.get<{ Params: OrderParams }>('/api/order/:userId', async (request, reply) => {
+  app.get<{ Params: OrderParams }>('/api/order/:userId', {
+    schema: {
+      params: {
+        type: 'object',
+        required: ['userId'],
+        properties: {
+          userId: { type: 'string', minLength: 1, maxLength: 255 },
+        },
+      },
+    },
+  }, async (request, reply) => {
     try {
       const { userId } = request.params;
       const result = await getOrder(userId);

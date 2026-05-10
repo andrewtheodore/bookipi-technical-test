@@ -239,14 +239,6 @@ Optimistic locking (version columns with retry loops) works well when conflicts 
 
 **Trade-off:** Under extreme load, the row lock becomes a bottleneck since transactions are serialized. For this scale (hundreds of concurrent DB transactions after Redis filtering), it performs well. At 10k+ concurrent DB transactions, we'd need a queue-based approach.
 
-#### Why raw `pg` instead of an ORM (Prisma/Drizzle)?
-For a performance-sensitive flash sale system, every millisecond in the transaction matters. Raw SQL with parameterized queries gives us:
-- Full control over the exact queries (especially `SELECT ... FOR UPDATE`)
-- No ORM overhead or query generation surprises
-- Simpler debugging — what you write is what runs
-
-**Trade-off:** Less developer convenience (no auto-migrations, no type-safe query builder). Acceptable for a focused project with 3 tables.
-
 #### Why graceful degradation when Redis is down?
 The system continues to work without Redis — all pre-checks are skipped and every request goes directly to Postgres. This is intentional:
 - **Availability over performance** — A Redis outage shouldn't cause a total system failure
@@ -313,6 +305,43 @@ npm run dev
 ```
 
 Opens on `http://localhost:5173`. The Vite dev server proxies `/api` requests to the backend.
+
+## Testing the Sale
+
+Once Docker, backend, and frontend are running (see [Getting Started](#getting-started)):
+
+1. **Open the frontend** at `http://localhost:5173`
+2. **Enter any user ID** (e.g., `user1`) and click **Buy Now**
+3. You should see a success message with your order ID
+4. Try buying again with the same user ID — it will be rejected as "already purchased"
+5. Check `GET http://localhost:3000/api/sale/status` to see remaining stock
+
+### Resetting the Sale
+
+To start a fresh sale (e.g., after stock runs out or the sale window expires), reset the database:
+
+```bash
+# Stop the backend (Ctrl+C), then reset the database
+docker compose down -v
+docker compose up -d
+
+# Restart the backend
+cd backend
+npm run dev
+```
+
+This clears all data and re-seeds a new product with 100 stock and a 1-hour sale window.
+
+### Custom Sale Configuration
+
+You can customize the sale by setting environment variables before starting the backend:
+
+```bash
+cd backend
+SALE_STOCK=10 SALE_START_TIME="2026-06-01T10:00:00Z" SALE_END_TIME="2026-06-01T11:00:00Z" npm run dev
+```
+
+See the [Environment Variables](#environment-variables-optional) table for all options.
 
 ## Running Tests
 

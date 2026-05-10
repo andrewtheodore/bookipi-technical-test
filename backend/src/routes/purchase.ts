@@ -18,8 +18,11 @@ export async function purchaseRoutes(app: FastifyInstance) {
     },
   }, async (request, reply) => {
     try {
-      const { userId } = request.body;
-      const result = await attemptPurchase(userId.trim());
+      const userId = request.body.userId.trim();
+      if (!userId) {
+        return reply.status(400).send({ error: 'userId cannot be empty' });
+      }
+      const result = await attemptPurchase(userId);
       const statusCode = result.success ? 200 : 409;
       return reply.status(statusCode).send(result);
     } catch (err) {
