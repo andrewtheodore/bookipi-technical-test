@@ -6,6 +6,7 @@ import { redis } from '../../src/redis/client.js';
 import { saleRoutes } from '../../src/routes/sale.js';
 import { purchaseRoutes } from '../../src/routes/purchase.js';
 import { orderRoutes } from '../../src/routes/order.js';
+import { REDIS_KEYS } from '../../src/redis/keys.js';
 
 const app = Fastify();
 
@@ -60,10 +61,10 @@ beforeEach(async () => {
   );
 
   // Sync Redis
-  await redis.set('flash_sale:stock', '10');
-  await redis.set('flash_sale:start_time', start);
-  await redis.set('flash_sale:end_time', end);
-  await redis.del('flash_sale:purchased_users');
+  await redis.set(REDIS_KEYS.STOCK, '10');
+  await redis.set(REDIS_KEYS.START_TIME, start);
+  await redis.set(REDIS_KEYS.END_TIME, end);
+  await redis.del(REDIS_KEYS.PURCHASED_USERS);
 });
 
 afterAll(async () => {
@@ -119,7 +120,7 @@ describe('POST /api/purchase', () => {
   it('rejects purchase when stock is exhausted', async () => {
     // Set stock to 1
     await pool.query('UPDATE products SET stock = 1');
-    await redis.set('flash_sale:stock', '1');
+    await redis.set(REDIS_KEYS.STOCK, '1');
 
     // First purchase succeeds
     await app.inject({

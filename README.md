@@ -115,6 +115,116 @@ erDiagram
     products ||--o{ sale_config : "has one"
 ```
 
+## API Documentation
+
+### `GET /api/sale/status`
+
+Returns the current state of the flash sale.
+
+**Response:**
+```json
+{
+  "status": "active",
+  "startsAt": "2026-05-08T10:00:00.000Z",
+  "endsAt": "2026-05-08T11:00:00.000Z",
+  "stockRemaining": 42
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | `"upcoming"` \| `"active"` \| `"ended"` | Current sale state |
+| `startsAt` | string (ISO 8601) | Sale start time |
+| `endsAt` | string (ISO 8601) | Sale end time |
+| `stockRemaining` | number | Items left in stock |
+
+---
+
+### `POST /api/purchase`
+
+Attempt to purchase the item.
+
+**Request:**
+```json
+{
+  "userId": "user123"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `userId` | string (1-255 chars) | Yes | Unique user identifier |
+
+**Response (200 — success):**
+```json
+{
+  "success": true,
+  "message": "Purchase successful!",
+  "orderId": 1
+}
+```
+
+**Response (409 — failure):**
+```json
+{
+  "success": false,
+  "message": "You have already purchased this item",
+  "reason": "already_purchased"
+}
+```
+
+| Reason | Description |
+|--------|-------------|
+| `sale_not_active` | Sale hasn't started or has ended |
+| `already_purchased` | User already bought the item |
+| `sold_out` | No stock remaining |
+
+**Response (400 — validation error):**
+
+Returned when `userId` is missing or empty.
+
+---
+
+### `GET /api/order/:userId`
+
+Check if a user has successfully purchased an item.
+
+**Response (user has purchased):**
+```json
+{
+  "hasPurchased": true,
+  "order": {
+    "id": 1,
+    "productId": 1,
+    "productName": "Limited Edition Sneakers",
+    "createdAt": "2026-05-08T10:05:00.000Z"
+  }
+}
+```
+
+**Response (user has not purchased):**
+```json
+{
+  "hasPurchased": false,
+  "order": null
+}
+```
+
+---
+
+### `GET /api/health`
+
+Health check endpoint.
+
+**Response:**
+```json
+{
+  "status": "ok"
+}
+```
+
+---
+
 ### Design Decisions & Trade-offs
 
 #### Why Redis as a cache layer, not the source of truth?
@@ -181,6 +291,7 @@ The API server starts on `http://localhost:3000`. On first run, it automatically
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `3000` | API server port |
+| `HOST` | `0.0.0.0` | API server host |
 | `PG_HOST` | `localhost` | PostgreSQL host |
 | `PG_PORT` | `5432` | PostgreSQL port |
 | `PG_USER` | `flashsale` | PostgreSQL user |
@@ -191,6 +302,7 @@ The API server starts on `http://localhost:3000`. On first run, it automatically
 | `SALE_STOCK` | `100` | Initial product stock |
 | `SALE_START_TIME` | `now` | Sale start time (ISO 8601) |
 | `SALE_END_TIME` | `now + 1 hour` | Sale end time (ISO 8601) |
+| `SALE_PRODUCT_NAME` | `Limited Edition Sneakers` | Product name |
 
 ### 3. Start Frontend
 
@@ -219,7 +331,7 @@ Requires Docker (Postgres + Redis) to be running:
 
 ```bash
 cd backend
-npx vitest run tests/integration
+npm run test:integration
 ```
 
 Tests the full API flow:
@@ -228,6 +340,59 @@ Tests the full API flow:
 - Out-of-stock rejection
 - Sale-not-active rejection
 - Order lookup
+
+### All Tests
+
+Run both unit and integration tests together:
+
+```bash
+cd backend
+npm run test:all
+```
+
+### Test Data
+
+#### Unit Tests
+
+The unit tests use hardcoded values with no database:
+
+| Parameter | Value |
+|-----------|-------|
+| Sale start | `2026-05-08T10:00:00Z` |
+| Sale end | `2026-05-08T11:00:00Z` |
+| Stock | Varies per test (`0`, `1`, `50`, `100`) |
+
+**Scenarios tested:**
+- `"upcoming"` — current time before sale start
+- `"active"` — current time within sale window and stock > 0
+- `"active"` — at exact start/end boundary with stock
+- `"ended"` — current time after sale end
+- `"ended"` — stock is 0 during sale window
+
+#### Integration Tests
+
+The integration tests seed a real PostgreSQL database and Redis before each test:
+
+| Resource | Seed Value |
+|----------|------------|
+| Product name | `Test Product` |
+| Initial stock | `10` |
+| Sale start | 5 minutes ago (`now - 5min`) |
+| Sale end | 1 hour from now (`now + 1hr`) |
+| Redis stock | `10` (synced with DB) |
+| Redis purchased users | Cleared before each test |
+
+**Scenarios tested:**
+
+| Test Case | User ID | Expected Status | Expected Reason |
+|-----------|---------|-----------------|-----------------|
+| Successful purchase | `user1` | `200` | `success: true` |
+| Duplicate purchase | `user2` (twice) | `409` | `already_purchased` |
+| Out-of-stock (stock set to 1) | `buyer1` then `buyer2` | `409` | `sold_out` |
+| Sale not active (moved to future) | `user3` | `409` | `sale_not_active` |
+| Missing userId | _(empty payload)_ | `400` | Validation error |
+| Order lookup (purchased user) | `ordercheck1` | `200` | `hasPurchased: true` |
+| Order lookup (no purchase) | `nonexistent` | `200` | `hasPurchased: false` |
 
 ## Stress Testing
 

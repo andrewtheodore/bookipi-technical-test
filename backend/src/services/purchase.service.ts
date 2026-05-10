@@ -154,7 +154,7 @@ export async function getOrder(userId: string) {
       id: order.id,
       productId: order.product_id,
       productName: order.product_name,
-      createdAt: order.created_at,
+      createdAt: new Date(order.created_at).toISOString(),
     },
   };
 }
