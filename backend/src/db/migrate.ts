@@ -37,11 +37,15 @@ export async function seed() {
 
     await client.query('COMMIT');
 
-    // Sync to Redis
-    await redis.set(REDIS_KEYS.STOCK, config.sale.stock.toString());
-    await redis.set(REDIS_KEYS.START_TIME, config.sale.startTime);
-    await redis.set(REDIS_KEYS.END_TIME, config.sale.endTime);
-    await redis.del(REDIS_KEYS.PURCHASED_USERS);
+    // Sync to Redis cache (best-effort, DB is source of truth)
+    try {
+      await redis.set(REDIS_KEYS.STOCK, config.sale.stock.toString());
+      await redis.set(REDIS_KEYS.START_TIME, config.sale.startTime);
+      await redis.set(REDIS_KEYS.END_TIME, config.sale.endTime);
+      await redis.del(REDIS_KEYS.PURCHASED_USERS);
+    } catch {
+      console.warn('Redis unavailable during seed sync, continuing in DB-only mode');
+    }
 
     console.log(
       `Seeded product "${config.sale.productName}" with ${config.sale.stock} stock`
@@ -61,22 +65,30 @@ export async function syncRedisFromDb() {
   const stockResult = await pool.query(
     'SELECT stock FROM products LIMIT 1'
   );
-  if (stockResult.rows.length > 0) {
-    await redis.set(REDIS_KEYS.STOCK, stockResult.rows[0].stock.toString());
-  }
 
   const saleResult = await pool.query(
     'SELECT start_time, end_time FROM sale_config LIMIT 1'
   );
-  if (saleResult.rows.length > 0) {
-    await redis.set(REDIS_KEYS.START_TIME, new Date(saleResult.rows[0].start_time).toISOString());
-    await redis.set(REDIS_KEYS.END_TIME, new Date(saleResult.rows[0].end_time).toISOString());
-  }
 
   const orders = await pool.query('SELECT user_id FROM orders');
-  if (orders.rows.length > 0) {
-    const userIds = orders.rows.map((r: { user_id: string }) => r.user_id);
+
+  try {
+    if (stockResult.rows.length > 0) {
+      await redis.set(REDIS_KEYS.STOCK, stockResult.rows[0].stock.toString());
+    }
+
+    if (saleResult.rows.length > 0) {
+      await redis.set(REDIS_KEYS.START_TIME, new Date(saleResult.rows[0].start_time).toISOString());
+      await redis.set(REDIS_KEYS.END_TIME, new Date(saleResult.rows[0].end_time).toISOString());
+    }
+
+    // Always clear purchased users set first to avoid stale entries.
     await redis.del(REDIS_KEYS.PURCHASED_USERS);
-    await redis.sadd(REDIS_KEYS.PURCHASED_USERS, ...userIds);
+    if (orders.rows.length > 0) {
+      const userIds = orders.rows.map((r: { user_id: string }) => r.user_id);
+      await redis.sadd(REDIS_KEYS.PURCHASED_USERS, ...userIds);
+    }
+  } catch {
+    console.warn('Redis unavailable during startup cache sync, continuing in DB-only mode');
   }
 }

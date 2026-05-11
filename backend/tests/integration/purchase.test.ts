@@ -117,6 +117,28 @@ describe('POST /api/purchase', () => {
     expect(body.reason).toBe('already_purchased');
   });
 
+  it('ignores stale redis purchased marker when no order exists', async () => {
+    await redis.sadd(REDIS_KEYS.PURCHASED_USERS, 'stale-user');
+
+    const first = await app.inject({
+      method: 'POST',
+      url: '/api/purchase',
+      payload: { userId: 'stale-user' },
+    });
+    const firstBody = JSON.parse(first.body);
+    expect(first.statusCode).toBe(200);
+    expect(firstBody.success).toBe(true);
+
+    const second = await app.inject({
+      method: 'POST',
+      url: '/api/purchase',
+      payload: { userId: 'stale-user' },
+    });
+    const secondBody = JSON.parse(second.body);
+    expect(second.statusCode).toBe(409);
+    expect(secondBody.reason).toBe('already_purchased');
+  });
+
   it('rejects purchase when stock is exhausted', async () => {
     // Set stock to 1
     await pool.query('UPDATE products SET stock = 1');

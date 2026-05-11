@@ -33,7 +33,17 @@ export async function attemptPurchase(userId: string): Promise<PurchaseResult> {
           'SELECT id FROM orders WHERE user_id = $1 LIMIT 1',
           [userId]
         );
-        return { success: false, message: 'You have already purchased this item', reason: 'already_purchased', orderId: existing.rows[0]?.id };
+        if (existing.rows.length > 0) {
+          return {
+            success: false,
+            message: 'You have already purchased this item',
+            reason: 'already_purchased',
+            orderId: existing.rows[0].id,
+          };
+        }
+
+        // Redis marker is stale; remove it and continue to DB checks.
+        await redis.srem(REDIS_KEYS.PURCHASED_USERS, userId);
       }
 
       // 3. Check stock

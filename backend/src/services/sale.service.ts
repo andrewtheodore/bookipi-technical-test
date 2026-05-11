@@ -41,7 +41,11 @@ export async function getSaleStatus(): Promise<SaleInfo> {
 
   const status = determineSaleStatus(now, startTime, endTime, stock);
 
-  await redis.set(REDIS_KEYS.STOCK, stock.toString());
+  try {
+    await redis.set(REDIS_KEYS.STOCK, stock.toString());
+  } catch {
+    // Redis is a cache layer; DB remains the source of truth.
+  }
 
   return {
     status,
